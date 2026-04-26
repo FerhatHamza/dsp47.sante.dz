@@ -1,1 +1,243 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>صيدليات المناوبة و الأطباء المختصين</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+    body { font-family: 'Tajawal', sans-serif; }
+    [x-cloak] { display: none; }
+  </style>
+  <!-- Leaflet CSS & JS for map (loaded in body) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen" oncontextmenu="return false;">
 
+  <!-- Anti-tampering -->
+  <script>
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', function(e) {
+      if (e.keyCode === 123) e.preventDefault(); // F12
+      if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) e.preventDefault(); // Ctrl+Shift+I/J
+      if (e.ctrlKey && e.keyCode === 85) e.preventDefault(); // Ctrl+U
+      if (e.ctrlKey && e.keyCode === 83) e.preventDefault(); // Ctrl+S
+    });
+  </script>
+
+  <!-- NAVBAR -->
+  <nav class="bg-emerald-700 text-white p-4 flex justify-between items-center shadow-md">
+    <h1 class="text-2xl font-bold">صحة الجزائر</h1>
+    <div class="flex gap-4">
+      <a href="admin.html" class="bg-white text-emerald-700 px-4 py-2 rounded-full font-semibold hover:bg-emerald-100">دخول المسؤول</a>
+      <a href="establishment.html" class="bg-white text-emerald-700 px-4 py-2 rounded-full font-semibold hover:bg-emerald-100">دخول المؤسسات</a>
+    </div>
+  </nav>
+
+  <div class="container mx-auto p-4">
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-6">
+      <button id="tab-pharmacy" class="px-6 py-3 bg-emerald-600 text-white rounded-t-lg font-bold shadow" onclick="switchTab('pharmacy')">صيدليات المناوبة</button>
+      <button id="tab-specialist" class="px-6 py-3 bg-gray-200 text-gray-700 rounded-t-lg font-bold shadow" onclick="switchTab('specialist')">الأطباء المختصين</button>
+    </div>
+
+    <!-- Pharmacy Tab -->
+    <div id="pharmacy-tab" class="tab-content">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">ابحث عن صيدلية مناوبة</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-semibold mb-1">الولاية</label>
+            <select id="ph-wilaya" class="w-full border rounded p-2" onchange="loadCommunes('ph')">
+              <option value="">كل الولايات</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">البلدية</label>
+            <select id="ph-commune" class="w-full border rounded p-2">
+              <option value="">كل البلديات</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">التاريخ</label>
+            <input type="date" id="ph-date" class="w-full border rounded p-2">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">الساعة</label>
+            <input type="time" id="ph-time" class="w-full border rounded p-2">
+          </div>
+        </div>
+        <button id="ph-search-btn" class="bg-emerald-600 text-white px-6 py-2 rounded-full font-bold hover:bg-emerald-700">بحث</button>
+        <div id="ph-results" class="mt-6 grid gap-4"></div>
+        <div id="map" class="h-96 w-full rounded-lg mt-4 hidden z-10"></div>
+      </div>
+    </div>
+
+    <!-- Specialist Tab (hidden initially) -->
+    <div id="specialist-tab" class="tab-content hidden">
+      <div class="bg-white p-6 rounded-lg shadow-md">
+        <h2 class="text-xl font-bold mb-4">ابحث عن طبيب مختص</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-semibold mb-1">التخصص</label>
+            <input type="text" id="sp-specialty" class="w-full border rounded p-2" placeholder="مثال: قلب">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">اسم الطبيب أو المؤسسة</label>
+            <input type="text" id="sp-name" class="w-full border rounded p-2">
+          </div>
+          <div>
+            <label class="block text-sm font-semibold mb-1">الولاية</label>
+            <select id="sp-wilaya" class="w-full border rounded p-2">
+              <option value="">كل الولايات</option>
+            </select>
+          </div>
+        </div>
+        <button id="sp-search-btn" class="bg-emerald-600 text-white px-6 py-2 rounded-full font-bold hover:bg-emerald-700">بحث</button>
+        <div id="sp-results" class="mt-6 grid gap-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Global state & helpers ----------
+    const API = ''; // Requests go to the same origin (Worker handles /api/...)
+    let map;
+    let currentTab = 'pharmacy';
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('pharmacy-tab').classList.toggle('hidden', tab !== 'pharmacy');
+      document.getElementById('specialist-tab').classList.toggle('hidden', tab !== 'specialist');
+      document.getElementById('tab-pharmacy').classList.toggle('bg-emerald-600', tab === 'pharmacy');
+      document.getElementById('tab-pharmacy').classList.toggle('bg-gray-200', tab !== 'pharmacy');
+      document.getElementById('tab-specialist').classList.toggle('bg-emerald-600', tab === 'specialist');
+      document.getElementById('tab-specialist').classList.toggle('bg-gray-200', tab !== 'specialist');
+      if (map) { map.remove(); map = null; document.getElementById('map').classList.add('hidden'); }
+    }
+
+    // Load wilayas for both selects
+    async function loadWilayas() {
+      const res = await fetch('/api/public/wilayas');
+      const data = await res.json();
+      const fillSelect = (id) => {
+        const select = document.getElementById(id);
+        data.forEach(w => {
+          const opt = document.createElement('option');
+          opt.value = w.id;
+          opt.textContent = w.name_ar || w.name;
+          select.appendChild(opt);
+        });
+      };
+      fillSelect('ph-wilaya');
+      fillSelect('sp-wilaya');
+    }
+
+    async function loadCommunes(prefix) {
+      const wilayaSelect = document.getElementById(prefix + '-wilaya');
+      const communeSelect = document.getElementById(prefix + '-commune');
+      communeSelect.innerHTML = '<option value="">كل البلديات</option>';
+      const wid = wilayaSelect.value;
+      if (!wid) return;
+      const res = await fetch(`/api/public/communes?wilaya_id=${wid}`);
+      const data = await res.json();
+      data.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name_ar || c.name;
+        communeSelect.appendChild(opt);
+      });
+    }
+
+    function initMap(lat, lng) {
+      if (!map) {
+        map = L.map('map').setView([lat, lng], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        document.getElementById('map').classList.remove('hidden');
+      }
+    }
+
+    function showOnMap(pharmacy) {
+      initMap(pharmacy.lat, pharmacy.lng);
+      map.setView([pharmacy.lat, pharmacy.lng], 15);
+      L.marker([pharmacy.lat, pharmacy.lng]).addTo(map)
+        .bindPopup(`<b>${pharmacy.name}</b><br>${pharmacy.address || ''}`).openPopup();
+    }
+
+    // ---------- Pharmacy Search ----------
+    document.getElementById('ph-search-btn').addEventListener('click', async () => {
+      const date = document.getElementById('ph-date').value || new Date().toISOString().slice(0,10);
+      const time = document.getElementById('ph-time').value || new Date().toTimeString().slice(0,5);
+      const wilaya_id = document.getElementById('ph-wilaya').value;
+      const commune_id = document.getElementById('ph-commune').value;
+      const params = new URLSearchParams({ date, time });
+      if (wilaya_id) params.append('wilaya_id', wilaya_id);
+      if (commune_id) params.append('commune_id', commune_id);
+      const res = await fetch(`/api/public/pharmacies-on-duty?${params}`);
+      const data = await res.json();
+      const container = document.getElementById('ph-results');
+      container.innerHTML = '';
+      if (data.length === 0) {
+        container.innerHTML = '<p class="text-gray-500">لا توجد صيدليات مناوبة حالياً</p>';
+        return;
+      }
+      data.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 p-4 rounded border';
+        card.innerHTML = `
+          <h3 class="font-bold text-lg">${p.name}</h3>
+          <p>${p.address || ''}</p>
+          <p>${p.wilaya} - ${p.commune}</p>
+          <p class="text-emerald-700 font-semibold">${p.phone || ''}</p>
+          <button class="mt-2 text-blue-600 underline" onclick='showOnMap(${JSON.stringify(p)})'>عرض على الخريطة</button>
+        `;
+        container.appendChild(card);
+      });
+    });
+
+    // ---------- Specialist Search ----------
+    document.getElementById('sp-search-btn').addEventListener('click', async () => {
+      const specialty = document.getElementById('sp-specialty').value.trim();
+      const name = document.getElementById('sp-name').value.trim();
+      const wilaya_id = document.getElementById('sp-wilaya').value;
+      const params = new URLSearchParams();
+      if (specialty) params.append('specialty', specialty);
+      if (name) params.append('name', name);
+      if (wilaya_id) params.append('wilaya_id', wilaya_id);
+      const res = await fetch(`/api/public/specialists?${params}`);
+      const data = await res.json();
+      const container = document.getElementById('sp-results');
+      container.innerHTML = '';
+      if (data.length === 0) {
+        container.innerHTML = '<p class="text-gray-500">لا يوجد نتائج</p>';
+        return;
+      }
+      data.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 p-4 rounded border';
+        card.innerHTML = `
+          <h3 class="font-bold text-lg">د. ${s.name}</h3>
+          <p class="text-emerald-700 font-semibold">${s.specialty}</p>
+          <p><strong>المؤسسة:</strong> ${s.establishment}</p>
+          <p><strong>العنوان:</strong> ${s.address || ''} - ${s.wilaya || ''} ${s.commune || ''}</p>
+          <p><strong>أوقات العمل:</strong> ${s.working_hours || 'غير محددة'}</p>
+          <p><strong>مكان الاستشارة:</strong> ${s.consultation_place || 'غير محدد'}</p>
+          ${s.extra_details ? `<p>${s.extra_details}</p>` : ''}
+        `;
+        container.appendChild(card);
+      });
+    });
+
+    // Set default date & time to now
+    document.getElementById('ph-date').valueAsDate = new Date();
+    document.getElementById('ph-time').value = new Date().toTimeString().slice(0,5);
+
+    // Initial load
+    loadWilayas();
+  </script>
+</body>
+</html>
