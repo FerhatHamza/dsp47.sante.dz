@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة تحكم المسؤول</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+    body { font-family: 'Tajawal', sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen" oncontextmenu="return false;">
+  <script>
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', function(e) {
+      if (e.keyCode === 123) e.preventDefault();
+      if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) e.preventDefault();
+      if (e.ctrlKey && e.keyCode === 85) e.preventDefault();
+    });
+  </script>
+
+  <!-- Admin Code Modal -->
+  <div id="code-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+      <h2 class="text-2xl font-bold mb-4 text-center">رمز المسؤول</h2>
+      <input type="password" id="admin-code-input" class="w-full border p-3 rounded mb-4" placeholder="أدخل رمز المسؤول">
+      <button onclick="submitCode()" class="w-full bg-emerald-600 text-white py-2 rounded font-bold">دخول</button>
+      <p id="code-error" class="text-red-600 mt-2 hidden text-center">رمز غير صحيح</p>
+    </div>
+  </div>
+
+  <!-- Main admin interface (hidden until authenticated) -->
+  <div id="admin-content" class="hidden container mx-auto p-4">
+    <nav class="bg-emerald-700 text-white p-4 rounded-lg mb-6 flex justify-between items-center">
+      <h1 class="text-2xl font-bold">لوحة التحكم</h1>
+      <button onclick="logout()" class="bg-red-500 px-4 py-2 rounded">خروج</button>
+    </nav>
+
+    <!-- Tabs for sections -->
+    <div class="flex gap-2 mb-4 flex-wrap">
+      <button class="admin-tab active bg-emerald-600 text-white px-4 py-2 rounded" data-section="wilayas">الولايات</button>
+      <button class="admin-tab bg-gray-200 px-4 py-2 rounded" data-section="communes">البلديات</button>
+      <button class="admin-tab bg-gray-200 px-4 py-2 rounded" data-section="pharmacies">الصيدليات</button>
+      <button class="admin-tab bg-gray-200 px-4 py-2 rounded" data-section="nightduty">مناوبات الصيدليات</button>
+      <button class="admin-tab bg-gray-200 px-4 py-2 rounded" data-section="establishments">المؤسسات الطبية</button>
+    </div>
+
+    <div id="sections-container"></div>
+  </div>
+
+  <script>
+    // Auth
+    let adminCode = sessionStorage.getItem('adminCode');
+    if (adminCode) {
+      document.getElementById('code-modal').classList.add('hidden');
+      document.getElementById('admin-content').classList.remove('hidden');
+      initAdmin();
+    }
+
+    function getHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'X-Admin-Code': adminCode
+      };
+    }
+
+    async function submitCode() {
+      const code = document.getElementById('admin-code-input').value;
+      // Simple test: make a request that validates the code
+      try {
+        const res = await fetch('/api/admin/wilayas', { headers: { 'X-Admin-Code': code } });
+        if (res.ok) {
+          adminCode = code;
+          sessionStorage.setItem('adminCode', code);
+          document.getElementById('code-modal').classList.add('hidden');
+          document.getElementById('admin-content').classList.remove('hidden');
+          initAdmin();
+        } else {
+          document.getElementById('code-error').classList.remove('hidden');
+        }
+      } catch (e) {
+        document.getElementById('code-error').classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem('adminCode');
+      location.reload();
+    }
+
+    // Section management
+    const sections = {
+      wilayas: renderWilayas,
+      communes: renderCommunes,
+      pharmacies: renderPharmacies,
+      nightduty: renderNightDuty,
+      establishments: renderEstablishments
+    };
+
+    let currentSection = 'wilayas';
+
+    async function initAdmin() {
+      // Set up tab clicks
+      document.querySelectorAll('.admin-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('bg-emerald-600','text-white'));
+          btn.classList.add('bg-emerald-600', 'text-white');
+          currentSection = btn.dataset.section;
+          sections[currentSection]();
+        });
+      });
+      sections.wilayas();
+    }
+
+    // ---------- Render functions ----------
+    async function renderWilayas() {
+      const res = await fetch('/api/admin/wilayas', { headers: getHeaders() });
+      const wilayas = await res.json();
+      const container = document.getElementById('sections-container');
+      container.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h2 class="text-xl font-bold mb-4">إدارة الولايات</h2>
+          <form id="wilaya-form" class="flex gap-4 mb-6">
+            <input type="text" placeholder="اسم الولاية" id="w-name" class="border p-2 rounded flex-1" required>
+            <input type="text" placeholder="الاسم بالعربية (اختياري)" id="w-name-ar" class="border p-2 rounded flex-1">
+            <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded">إضافة</button>
+          </form>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            ${wilayas.map(w => `<div class="bg-gray-50 p-2 rounded">${w.name_ar || w.name}</div>`).join('')}
+          </div>
+        </div>
+      `;
+      document.getElementById('wilaya-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('w-name').value;
+        const name_ar = document.getElementById('w-name-ar').value;
+        await fetch('/api/admin/wilaya', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ name, name_ar })
+        });
+        renderWilayas();
+      });
+    }
+
+    async function renderCommunes() {
+      const [wilayasRes, communesRes] = await Promise.all([
+        fetch('/api/admin/wilayas', { headers: getHeaders() }),
+        fetch('/api/admin/communes?wilaya_id=all', { headers: getHeaders() })
+      ]);
+      const wilayas = await wilayasRes.json();
+      // communes? can't get all at once, so just provide dropdown
+      let container = document.getElementById('sections-container');
+      container.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h2 class="text-xl font-bold mb-4">إدارة البلديات</h2>
+          <div class="flex gap-4 mb-4">
+            <select id="comm-wilaya" class="border p-2 rounded" onchange="loadAdminCommunes()">
+              <option value="">اختر ولاية</option>
+              ${wilayas.map(w => `<option value="${w.id}">${w.name_ar || w.name}</option>`).join('')}
+            </select>
+            <form id="commune-form" class="flex gap-2">
+              <input type="text" placeholder="اسم البلدية" id="c-name" class="border p-2 rounded" required>
+              <input type="text" placeholder="الاسم بالعربية" id="c-name-ar" class="border p-2 rounded">
+              <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded">إضافة</button>
+            </form>
+          </div>
+          <div id="communes-list" class="grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+        </div>
+      `;
+      document.getElementById('commune-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const wilaya_id = document.getElementById('comm-wilaya').value;
+        if (!wilaya_id) { alert('اختر ولاية'); return; }
+        const name = document.getElementById('c-name').value;
+        const name_ar = document.getElementById('c-name-ar').value;
+        await fetch('/api/admin/commune', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ wilaya_id, name, name_ar })
+        });
+        loadAdminCommunes();
+      });
+    }
+
+    async function loadAdminCommunes() {
+      const wid = document.getElementById('comm-wilaya').value;
+      if (!wid) {
+        document.getElementById('communes-list').innerHTML = '';
+        return;
+      }
+      const res = await fetch(`/api/admin/communes?wilaya_id=${wid}`, { headers: getHeaders() });
+      const communes = await res.json();
+      document.getElementById('communes-list').innerHTML = communes.map(c => `<div class="bg-gray-50 p-2 rounded">${c.name_ar || c.name}</div>`).join('');
+    }
+
+    async function renderPharmacies() {
+      const [phRes, wilRes] = await Promise.all([
+        fetch('/api/admin/pharmacies', { headers: getHeaders() }),
+        fetch('/api/admin/wilayas', { headers: getHeaders() })
+      ]);
+      const pharmacies = await phRes.json();
+      const wilayas = await wilRes.json();
+      const container = document.getElementById('sections-container');
+      container.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h2 class="text-xl font-bold mb-4">إدارة الصيدليات</h2>
+          <form id="pharmacy-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <input type="text" placeholder="اسم الصيدلية" id="ph-name" class="border p-2 rounded" required>
+            <input type="text" placeholder="الهاتف" id="ph-phone" class="border p-2 rounded">
+            <input type="text" placeholder="العنوان" id="ph-address" class="border p-2 rounded">
+            <input type="number" step="any" placeholder="خط العرض (lat)" id="ph-lat" class="border p-2 rounded" required>
+            <input type="number" step="any" placeholder="خط الطول (lng)" id="ph-lng" class="border p-2 rounded" required>
+            <select id="ph-commune" class="border p-2 rounded" required>
+              <option value="">اختر البلدية</option>
+            </select>
+            <input type="text" placeholder="ملاحظات" id="ph-notes" class="border p-2 rounded">
+            <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded col-span-full">إضافة صيدلية</button>
+          </form>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr><th>الاسم</th><th>الهاتف</th><th>الولاية</th><th>البلدية</th><th>الإحداثيات</th><th></th></tr></thead>
+              <tbody>
+                ${pharmacies.map(p => `<tr>
+                  <td>${p.name}</td><td>${p.phone||''}</td><td>${p.wilaya}</td><td>${p.commune}</td>
+                  <td>${p.lat}, ${p.lng}</td>
+                  <td><button onclick="deletePharm(${p.id})" class="text-red-600">حذف</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      // Load communes for pharmacy form when wilaya selected? For simplicity, load all communes in a flat list; better dynamic.
+      // Add wilaya filter for pharmacy commune dropdown: first add a wilaya select.
+      // We'll add a quick fix: add a wilaya select before commune.
+      const formDiv = document.querySelector('#pharmacy-form');
+      const communeSelect = document.getElementById('ph-commune');
+      // Insert wilaya select before commune
+      const wilayaSelect = document.createElement('select');
+      wilayaSelect.id = 'ph-wilaya-filter';
+      wilayaSelect.className = 'border p-2 rounded';
+      wilayaSelect.innerHTML = '<option value="">اختر ولاية</option>' + wilayas.map(w => `<option value="${w.id}">${w.name_ar||w.name}</option>`).join('');
+      formDiv.insertBefore(wilayaSelect, communeSelect);
+      wilayaSelect.addEventListener('change', async () => {
+        const wid = wilayaSelect.value;
+        communeSelect.innerHTML = '<option value="">اختر البلدية</option>';
+        if (!wid) return;
+        const res = await fetch(`/api/public/communes?wilaya_id=${wid}`, { headers: getHeaders() });
+        const comms = await res.json();
+        comms.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.id; opt.textContent = c.name_ar||c.name;
+          communeSelect.appendChild(opt);
+        });
+      });
+
+      document.getElementById('pharmacy-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+          name: document.getElementById('ph-name').value,
+          phone: document.getElementById('ph-phone').value,
+          address: document.getElementById('ph-address').value,
+          lat: parseFloat(document.getElementById('ph-lat').value),
+          lng: parseFloat(document.getElementById('ph-lng').value),
+          commune_id: parseInt(document.getElementById('ph-commune').value),
+          notes: document.getElementById('ph-notes').value
+        };
+        await fetch('/api/admin/pharmacy', { method:'POST', headers:getHeaders(), body:JSON.stringify(data) });
+        renderPharmacies();
+      });
+    }
+
+    async function deletePharm(id) {
+      if (confirm('هل تريد حذف هذه الصيدلية؟')) {
+        await fetch(`/api/admin/pharmacy/${id}`, { method:'DELETE', headers:getHeaders() });
+        renderPharmacies();
+      }
+    }
+
+    async function renderNightDuty() {
+      const [phRes, plansRes] = await Promise.all([
+        fetch('/api/admin/pharmacies', { headers: getHeaders() }),
+        fetch('/api/admin/night-duty-list', { headers: getHeaders() }) // we need endpoint; I'll simulate
+      ]);
+      const pharmacies = await phRes.json();
+      // We'll just list plans; create form
+      const container = document.getElementById('sections-container');
+      container.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h2 class="text-xl font-bold mb-4">جدول المناوبات</h2>
+          <form id="duty-form" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <select id="duty-pharmacy" class="border p-2 rounded" required>
+              <option value="">اختر صيدلية</option>
+              ${pharmacies.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+            </select>
+            <input type="date" id="duty-date" class="border p-2 rounded" required>
+            <input type="time" id="duty-start" class="border p-2 rounded" required>
+            <input type="time" id="duty-end" class="border p-2 rounded" required>
+            <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded">إضافة/تحديث</button>
+          </form>
+          <div id="duty-list"></div>
+        </div>
+      `;
+      document.getElementById('duty-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await fetch('/api/admin/night-duty', {
+          method: 'POST', headers: getHeaders(),
+          body: JSON.stringify({
+            pharmacy_id: document.getElementById('duty-pharmacy').value,
+            duty_date: document.getElementById('duty-date').value,
+            start_time: document.getElementById('duty-start').value,
+            end_time: document.getElementById('duty-end').value
+          })
+        });
+        alert('تم الحفظ');
+      });
+    }
+
+    async function renderEstablishments() {
+      const res = await fetch('/api/admin/establishments', { headers: getHeaders() });
+      const establishments = await res.json();
+      const container = document.getElementById('sections-container');
+      container.innerHTML = `
+        <div class="bg-white p-6 rounded-lg shadow">
+          <h2 class="text-xl font-bold mb-4">المؤسسات الطبية</h2>
+          <form id="est-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <input type="text" placeholder="اسم المؤسسة" id="est-name" class="border p-2 rounded" required>
+            <input type="text" placeholder="الهاتف" id="est-phone" class="border p-2 rounded">
+            <input type="text" placeholder="العنوان" id="est-address" class="border p-2 rounded">
+            <select id="est-wilaya" class="border p-2 rounded"><option value="">الولاية (اختياري)</option></select>
+            <select id="est-commune" class="border p-2 rounded"><option value="">البلدية (اختياري)</option></select>
+            <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded">إنشاء مؤسسة</button>
+          </form>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr><th>الاسم</th><th>رمز الدخول</th><th>الهاتف</th><th></th></tr></thead>
+              <tbody>
+                ${establishments.map(e => `<tr>
+                  <td>${e.name}</td><td class="font-mono">${e.login_code}</td><td>${e.phone||''}</td>
+                  <td><button onclick="deleteEst(${e.id})" class="text-red-600">حذف</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      // Load wilayas for establishment form
+      const wRes = await fetch('/api/admin/wilayas', { headers: getHeaders() });
+      const wilayas = await wRes.json();
+      const estWilaya = document.getElementById('est-wilaya');
+      wilayas.forEach(w => estWilaya.appendChild(new Option(w.name_ar||w.name, w.id)));
+      estWilaya.addEventListener('change', async () => {
+        const wid = estWilaya.value;
+        const cRes = await fetch(`/api/public/communes?wilaya_id=${wid}`, { headers: getHeaders() });
+        const comms = await cRes.json();
+        const estCommune = document.getElementById('est-commune');
+        estCommune.innerHTML = '<option value="">كل البلديات</option>';
+        comms.forEach(c => estCommune.appendChild(new Option(c.name_ar||c.name, c.id)));
+      });
+      document.getElementById('est-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = {
+          name: document.getElementById('est-name').value,
+          phone: document.getElementById('est-phone').value,
+          address: document.getElementById('est-address').value,
+          wilaya_id: document.getElementById('est-wilaya').value || null,
+          commune_id: document.getElementById('est-commune').value || null
+        };
+        const res = await fetch('/api/admin/establishment', { method:'POST', headers:getHeaders(), body:JSON.stringify(data) });
+        const newEst = await res.json();
+        alert(`تم إنشاء المؤسسة. رمز الدخول: ${newEst.login_code}`);
+        renderEstablishments();
+      });
+    }
+    async function deleteEst(id) {
+      if (confirm('حذف المؤسسة؟')) {
+        await fetch(`/api/admin/establishment/${id}`, { method:'DELETE', headers:getHeaders() });
+        renderEstablishments();
+      }
+    }
+  </script>
+</body>
+</html>
