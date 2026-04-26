@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مساحة المؤسسة</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap');
+    body { font-family: 'Tajawal', sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen" oncontextmenu="return false;">
+  <script>
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('keydown', function(e) {
+      if (e.keyCode === 123) e.preventDefault();
+      if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) e.preventDefault();
+      if (e.ctrlKey && e.keyCode === 85) e.preventDefault();
+    });
+  </script>
+
+  <!-- Code entry modal -->
+  <div id="code-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+      <h2 class="text-2xl font-bold mb-4 text-center">رمز المؤسسة</h2>
+      <input type="text" id="est-code-input" class="w-full border p-3 rounded mb-4" placeholder="أدخل رمز المؤسسة">
+      <button onclick="submitEstCode()" class="w-full bg-emerald-600 text-white py-2 rounded font-bold">دخول</button>
+      <p id="code-error" class="text-red-600 mt-2 hidden text-center">رمز غير صحيح</p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden container mx-auto p-4">
+    <nav class="bg-emerald-700 text-white p-4 rounded-lg mb-6 flex justify-between items-center">
+      <h1 class="text-2xl font-bold">مساحة المؤسسة</h1>
+      <button onclick="logout()" class="bg-red-500 px-4 py-2 rounded">خروج</button>
+    </nav>
+    <div class="bg-white p-6 rounded-lg shadow mb-6">
+      <h2 class="text-xl font-bold mb-4">بيانات المؤسسة</h2>
+      <div id="profile-info"></div>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow">
+      <h2 class="text-xl font-bold mb-4">الأطباء المختصين</h2>
+      <form id="specialist-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <input type="text" placeholder="اسم الطبيب" id="sp-name" class="border p-2 rounded" required>
+        <input type="text" placeholder="التخصص" id="sp-specialty" class="border p-2 rounded" required>
+        <input type="text" placeholder="أوقات العمل" id="sp-hours" class="border p-2 rounded">
+        <input type="text" placeholder="مكان الاستشارة" id="sp-place" class="border p-2 rounded">
+        <input type="text" placeholder="تفاصيل إضافية" id="sp-details" class="border p-2 rounded">
+        <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded col-span-full">إضافة طبيب</button>
+      </form>
+      <div id="specialists-list" class="grid gap-4"></div>
+    </div>
+  </div>
+
+  <script>
+    let estCode = sessionStorage.getItem('estCode');
+    if (estCode) {
+      document.getElementById('code-modal').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      loadDashboard();
+    }
+
+    function getHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'X-Est-Code': estCode
+      };
+    }
+
+    async function submitEstCode() {
+      const code = document.getElementById('est-code-input').value.trim();
+      try {
+        const res = await fetch('/api/establishment/profile', { headers: { 'X-Est-Code': code } });
+        if (res.ok) {
+          estCode = code;
+          sessionStorage.setItem('estCode', code);
+          document.getElementById('code-modal').classList.add('hidden');
+          document.getElementById('dashboard').classList.remove('hidden');
+          loadDashboard();
+        } else {
+          document.getElementById('code-error').classList.remove('hidden');
+        }
+      } catch (e) {
+        document.getElementById('code-error').classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem('estCode');
+      location.reload();
+    }
+
+    async function loadDashboard() {
+      // Profile
+      const profileRes = await fetch('/api/establishment/profile', { headers: getHeaders() });
+      const profile = await profileRes.json();
+      document.getElementById('profile-info').innerHTML = `
+        <p><strong>الاسم:</strong> ${profile.name}</p>
+        <p><strong>العنوان:</strong> ${profile.address || ''} - ${profile.wilaya || ''} ${profile.commune || ''}</p>
+        <p><strong>الهاتف:</strong> ${profile.phone || ''}</p>
+      `;
+
+      // Specialists
+      await loadSpecialists();
+    }
+
+    async function loadSpecialists() {
+      const res = await fetch('/api/establishment/specialists', { headers: getHeaders() });
+      const specialists = await res.json();
+      const container = document.getElementById('specialists-list');
+      container.innerHTML = '';
+      specialists.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-50 p-4 rounded border';
+        card.innerHTML = `
+          <div class="flex justify-between items-start">
+            <div>
+              <h3 class="font-bold text-lg">د. ${s.name}</h3>
+              <p class="text-emerald-700">${s.specialty}</p>
+              <p>أوقات: ${s.working_hours || 'غير محدد'}</p>
+              <p>مكان: ${s.consultation_place || 'غير محدد'}</p>
+              ${s.extra_details ? `<p>${s.extra_details}</p>` : ''}
+            </div>
+            <div>
+              <button onclick="deleteSpecialist(${s.id})" class="text-red-600 ml-2">حذف</button>
+              <button onclick="editSpecialist(${s.id}, '${s.name}', '${s.specialty}', '${s.working_hours||''}', '${s.consultation_place||''}', '${s.extra_details||''}')" class="text-blue-600">تعديل</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    document.getElementById('specialist-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = {
+        name: document.getElementById('sp-name').value,
+        specialty: document.getElementById('sp-specialty').value,
+        working_hours: document.getElementById('sp-hours').value,
+        consultation_place: document.getElementById('sp-place').value,
+        extra_details: document.getElementById('sp-details').value
+      };
+      await fetch('/api/establishment/specialist', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data)
+      });
+      document.getElementById('specialist-form').reset();
+      loadSpecialists();
+    });
+
+    window.deleteSpecialist = async (id) => {
+      if (confirm('حذف هذا الطبيب؟')) {
+        await fetch(`/api/establishment/specialist/${id}`, { method: 'DELETE', headers: getHeaders() });
+        loadSpecialists();
+      }
+    };
+
+    // Quick edit (in a real app we'd use modal, but for simplicity we'll just prompt)
+    window.editSpecialist = async (id, name, specialty, hours, place, details) => {
+      const newName = prompt('الاسم:', name);
+      if (!newName) return;
+      const newSpecialty = prompt('التخصص:', specialty);
+      const newHours = prompt('أوقات العمل:', hours);
+      const newPlace = prompt('مكان الاستشارة:', place);
+      const newDetails = prompt('تفاصيل إضافية:', details);
+      await fetch(`/api/establishment/specialist/${id}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          name: newName,
+          specialty: newSpecialty,
+          working_hours: newHours,
+          consultation_place: newPlace,
+          extra_details: newDetails
+        })
+      });
+      loadSpecialists();
+    };
+  </script>
+</body>
+</html>
